@@ -27,8 +27,34 @@ public partial class SpaceHolidayWebHookHandler : SpaceWebHookHandler
 
     public override async Task<SpaceWebHookOptions> ConfigureRequestValidationOptionsAsync(SpaceWebHookOptions options, ApplicationPayload payload)
     {
+        // jg : guard the deserialization, since app validation will crash with a nonexistent client id
+        // GetClientId guard was raised with ClassName (AppPublicationCheckPayload) :
+        // Specified argument was out of the range of valid values. (Parameter 'current')
+        // > no_client_id, no_client_secret, bad_uri
+        
+        // post-submission (success) notes
+        // AppPublicationCheckPayload was causing the crash, as it is sent with no content
+        // This can be detected with something like : if (payload.ClassName == "AppPublicationCheckPayload") ..
+        var clientId = "";
+        try
+        {
+            clientId = payload.GetClientId();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"GetClientId guard was raised with ClassName ({payload.ClassName}) : {ex.Message}");
+            var cid = options.ClientId ?? "no_client_id";
+            var cs = options.ClientSecret ?? "no_client_secret";
+            var uri = "bad_uri";
+            if (options.ServerUrl != null)
+            {
+                uri = options.ServerUrl.AbsolutePath;
+            }
+            Console.WriteLine($"> {cid}, {cs}, {uri}");
+        }
+
         // When the payload has a clientId, configure request validation to use the signing key of the matching organization.
-        var clientId = payload.GetClientId();
+        // var clientId = payload.GetClientId();
         var organization = await _db.Organizations.FirstOrDefaultAsync(it => it.ClientId == clientId);
         if (organization != null)
         {
