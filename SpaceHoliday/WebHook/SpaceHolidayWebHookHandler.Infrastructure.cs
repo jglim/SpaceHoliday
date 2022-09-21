@@ -18,22 +18,46 @@ public partial class SpaceHolidayWebHookHandler
         var organization = await _db.Organizations.FirstOrDefaultAsync(it => it.ServerUrl == payload.ServerUrl);
         if (organization != null)
         {
+            /*
+             
+             This interaction is unhandled:
+             - Application to a user's org
+             - The application is uninstalled Extensions -> Applications -> SpaceHoliday -> [Uninstall]
+             - When attempting to add the application to the same org again, we end up in this path:
+                - There isn't an uninstall webhook signal as far as I know
+                - This leaves an orphaned org entry in the db with unusable secrets/keys
+                - Because of this entry, the user is permanently unable to reinstall this application
+              
+              The "temporary" workaround for this is to update the stale entry with this new InitPayload
+              This change should allow users to uninstall/re-install this space application with no issue
+              Org entries will still be orphaned on deletion, but this is transparent to the end users
+            
+             */
             _logger.LogWarning("The organization server URL is already registered. ServerUrl={ServerUrl}; Existing ClientId={ClientId}; New ClientId={NewClientId}", payload.ServerUrl, organization.ClientId, payload.ClientId);
-            return new ApplicationExecutionResult("The organization server URL is already registered.", 400);
+            _logger.LogWarning($"Attempting to renew org entry for {payload.ServerUrl}");
+
+            organization.ClientId = payload.ClientId;
+            organization.ClientSecret = payload.ClientSecret;
+            organization.UserId = payload.UserId;
+            organization.SigningKey = "pending";
+
+            // return new ApplicationExecutionResult("The organization server URL is already registered.", 400);
         }
-
-        // Create organization locally
-        organization = new Organization
+        else
         {
-            Created = DateTimeOffset.UtcNow,
-            ServerUrl = payload.ServerUrl,
-            ClientId = payload.ClientId,
-            ClientSecret = payload.ClientSecret,
-            UserId = payload.UserId,
-            SigningKey = "pending"
-        };
+            // Create organization locally
+            organization = new Organization
+            {
+                Created = DateTimeOffset.UtcNow,
+                ServerUrl = payload.ServerUrl,
+                ClientId = payload.ClientId,
+                ClientSecret = payload.ClientSecret,
+                UserId = payload.UserId,
+                SigningKey = "pending"
+            };
 
-        _db.Organizations.Add(organization);
+            _db.Organizations.Add(organization);
+        }
 
         await _db.SaveChangesAsync();
         
@@ -68,6 +92,7 @@ public partial class SpaceHolidayWebHookHandler
             }
         }
             
+        /*
         await applicationClient.Authorizations.AuthorizedRights.RequestRightsAsync(
             application: ApplicationIdentifier.Me,
             contextIdentifier: PermissionContextIdentifier.Global, 
@@ -77,6 +102,7 @@ public partial class SpaceHolidayWebHookHandler
                 "Channel.ViewMessages",
                 "Channel.ViewChannel"
             });
+        */
         
         return await base.HandleInitAsync(payload);
     }
